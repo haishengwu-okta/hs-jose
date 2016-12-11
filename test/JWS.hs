@@ -302,14 +302,18 @@ appendixA5Spec = describe "JWS A.5.  Example Plaintext JWS" $ do
 appendixA6Spec :: Spec
 appendixA6Spec = describe "JWS A.6.  Example JWS Using JWS JSON Serialization" $
   it "decodes the correct JWS" $ do
-    eitherDecode exampleJWS `shouldBe` Right jws
-    eitherDecode exampleJWS' `shouldBe` Right jws'
+    eitherDecode exampleJWSTwoSigs `shouldBe` Right jwsTwoSigsList
+    eitherDecode exampleJWSOneSig `shouldBe` Right jwsOneSigList
+    eitherDecode exampleJWSFlat `shouldBe` Right jwsOneSigList
+    eitherDecode exampleJWSOneSig `shouldBe` Right jwsOneSigIdentity
+    eitherDecode exampleJWSFlat `shouldBe` Right jwsOneSigIdentity
     (eitherDecode exampleFlatJWSWithSignatures :: Either String (JWS Identity JWSHeader))
       `shouldSatisfy` is _Left
 
   where
-    jws = JWS examplePayload [sig1, sig2]
-    jws' = JWS examplePayload [sig2]
+    jwsTwoSigsList = JWS examplePayload [sig1, sig2]
+    jwsOneSigList = JWS examplePayload [sig2]
+    jwsOneSigIdentity = JWS examplePayload (Identity sig2)
     sig1 = Signature Nothing h1' (Types.Base64Octets mac1)
     h1 = newJWSHeader (Protected, JWA.JWS.RS256)
     h1' = h1 & jwsHeaderKid .~ Just (HeaderParam Unprotected "2010-12-29")
@@ -339,7 +343,7 @@ appendixA6Spec = describe "JWS A.6.  Example JWS Using JWS JSON Serialization" $
       "DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSA\
       \pmWQxfKTUJqPP3-Kg6NU1Q"
 
-    exampleJWS = "\
+    exampleJWSTwoSigs = "\
       \{\"payload\":\
       \  \"eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGF\
           \tcGxlLmNvbS9pc19yb290Ijp0cnVlfQ\",\
@@ -361,7 +365,19 @@ appendixA6Spec = describe "JWS A.6.  Example JWS Using JWS JSON Serialization" $
       \     \"DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8IS\
             \lSApmWQxfKTUJqPP3-Kg6NU1Q\"}]\
       \}"
-    exampleJWS' = "\
+    exampleJWSOneSig = "\
+      \{\"payload\":\
+      \  \"eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGF\
+          \tcGxlLmNvbS9pc19yb290Ijp0cnVlfQ\",\
+      \ \"signatures\":[\
+      \   {\"protected\":\"eyJhbGciOiJFUzI1NiJ9\",\
+      \    \"header\":\
+      \     {\"kid\":\"e9bc097a-ce51-4036-9562-d2ade882db0d\"},\
+      \    \"signature\":\
+      \     \"DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8IS\
+            \lSApmWQxfKTUJqPP3-Kg6NU1Q\"}]\
+      \}"
+    exampleJWSFlat = "\
       \{\
       \ \"payload\":\
       \  \"eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGF\

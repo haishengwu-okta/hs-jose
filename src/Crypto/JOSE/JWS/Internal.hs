@@ -185,7 +185,7 @@ instance (FromJSON (t (Signature a)), Applicative t, HasParams a) => FromJSON (J
       <*> o .: "signatures") v
     <|> withObject "Flattened JWS JSON serialization" (\o ->
       if M.member "signatures" o
-      then fail "\"signatures\" member MUST NOT be present"
+      then fail "failed to decode signature(s)"
       else (\p s -> JWS p (pure s)) <$> o .: "payload" <*> parseJSON v) v
 
 instance (ToJSON (t (Signature a)), HasParams a) => ToJSON (JWS t a) where
