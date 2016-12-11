@@ -158,11 +158,11 @@ appendixA1Spec = describe "JWS A.1.  Example JWS using HMAC SHA-256" $ do
   --
   it "decodes the example to the correct value" $
     decodeCompact compactJWS
-      `shouldBe` (Right jws :: Either Error (JWS JWSHeader))
+      `shouldBe` (Right jws :: Either Error (JWS Identity JWSHeader))
 
   it "round-trips correctly" $
     (encodeCompact jws >>= decodeCompact)
-      `shouldBe` (Right jws :: Either Error (JWS JWSHeader))
+      `shouldBe` (Right jws :: Either Error (JWS Identity JWSHeader))
 
   it "computes the HMAC correctly" $
     fst (withDRG drg $
@@ -170,7 +170,7 @@ appendixA1Spec = describe "JWS A.1.  Example JWS using HMAC SHA-256" $ do
       `shouldBe` (Right (BS.pack macOctets) :: Either Error BS.ByteString)
 
   it "validates the JWS correctly" $
-    ( (decodeCompact compactJWS :: Either Error (JWS JWSHeader))
+    ( (decodeCompact compactJWS :: Either Error (JWS Identity JWSHeader))
       >>= verifyJWS defaultValidationSettings jwk
     ) `shouldSatisfy` is _Right
 
@@ -181,7 +181,7 @@ appendixA1Spec = describe "JWS A.1.  Example JWS using HMAC SHA-256" $ do
       \eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFt\
       \cGxlLmNvbS9pc19yb290Ijp0cnVlfQ"
     compactJWS = signingInput' <> ".dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
-    jws = JWS examplePayload [signature]
+    jws = JWS examplePayload (Identity signature)
     signature = Signature encodedProtectedHeader h (Types.Base64Octets mac)
     encodedProtectedHeader = Just "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9"
     alg = JWA.JWS.HS256
@@ -288,8 +288,10 @@ appendixA5Spec = describe "JWS A.5.  Example Plaintext JWS" $ do
     decodeCompact exampleJWS `shouldBe` jws
 
   where
-    jws = fst $ withDRG drg $ runExceptT $
-      signJWS (JWS examplePayload []) (newJWSHeader (Protected, JWA.JWS.None)) undefined
+    jws = fst $ withDRG drg $ runExceptT $ do
+      let Types.Base64Octets p = examplePayload
+      jws <- newJWS undefined (newJWSHeader (Protected, JWA.JWS.None)) p
+      pure (jws :: JWS Identity JWSHeader)
     exampleJWS = "eyJhbGciOiJub25lIn0\
       \.\
       \eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFt\
@@ -302,7 +304,7 @@ appendixA6Spec = describe "JWS A.6.  Example JWS Using JWS JSON Serialization" $
   it "decodes the correct JWS" $ do
     eitherDecode exampleJWS `shouldBe` Right jws
     eitherDecode exampleJWS' `shouldBe` Right jws'
-    (eitherDecode exampleFlatJWSWithSignatures :: Either String (JWS JWSHeader))
+    (eitherDecode exampleFlatJWSWithSignatures :: Either String (JWS Identity JWSHeader))
       `shouldSatisfy` is _Left
 
   where

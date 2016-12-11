@@ -23,7 +23,7 @@ module Crypto.JOSE.JWS.Internal where
 import Control.Applicative ((<|>))
 import Data.Foldable (toList)
 import Data.Maybe (catMaybes, fromMaybe)
-import Data.Monoid ((<>))
+import Data.Semigroup ((<>), Semigroup)
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Except (MonadError(throwError))
@@ -167,12 +167,18 @@ instance HasParams JWSHeader where
 -- | JSON Web Signature data type.  Consists of a payload and a
 -- (possibly empty) list of signatures.
 --
--- Parameterised by the header type.
+-- Parameterised by the header type, and the container type for
+-- signatures.
 --
-data JWS a = JWS Types.Base64Octets [Signature a]
-  deriving (Eq, Show)
+data JWS t a = JWS Types.Base64Octets (t (Signature a))
 
-instance HasParams a => FromJSON (JWS a) where
+instance (Eq (t (Signature a))) => Eq (JWS t a) where
+  JWS p sigs == JWS p' sigs' = p == p' && sigs == sigs'
+
+instance (Show (t (Signature a))) => Show (JWS t a) where
+  show (JWS p sigs) = "JWS " <> show p <> " " <> show sigs
+
+instance (FromJSON (t (Signature a)), Applicative t, HasParams a) => FromJSON (JWS t a) where
   parseJSON v =
     withObject "JWS JSON serialization" (\o -> JWS
       <$> o .: "payload"
@@ -180,19 +186,14 @@ instance HasParams a => FromJSON (JWS a) where
     <|> withObject "Flattened JWS JSON serialization" (\o ->
       if M.member "signatures" o
       then fail "\"signatures\" member MUST NOT be present"
-      else (\p s -> JWS p [s]) <$> o .: "payload" <*> parseJSON v) v
+      else (\p s -> JWS p (pure s)) <$> o .: "payload" <*> parseJSON v) v
 
-instance HasParams a => ToJSON (JWS a) where
+instance (ToJSON (t (Signature a)), HasParams a) => ToJSON (JWS t a) where
   toJSON (JWS p ss) = object ["payload" .= p, "signatures" .= ss]
-
--- | Construct a new (unsigned) JWS
---
-newJWS :: BS.ByteString -> JWS a
-newJWS msg = JWS (Types.Base64Octets msg) []
 
 -- | Payload of a JWS, as a lazy bytestring.
 --
-jwsPayload :: JWS a -> BSL.ByteString
+jwsPayload :: JWS t a -> BSL.ByteString
 jwsPayload (JWS (Types.Base64Octets s) _) = BSL.fromStrict s
 
 signingInput
@@ -210,8 +211,8 @@ signingInput h p = BS.intercalate "."
 -- The operation is defined only when there is exactly one
 -- signature and returns Nothing otherwise
 --
-instance HasParams a => ToCompact (JWS a) where
-  toCompact (JWS p [Signature raw h sig]) =
+instance HasParams a => ToCompact (JWS Identity a) where
+  toCompact (JWS p (Identity (Signature raw h sig))) =
     case unprotectedParams h of
       Nothing -> pure
         [ BSL.fromStrict $ signingInput (maybe (Right h) Left raw) p
@@ -219,10 +220,8 @@ instance HasParams a => ToCompact (JWS a) where
         ]
       Just _ -> throwError $ review _CompactEncodeError $
         "cannot encode a compact JWS with unprotected headers"
-  toCompact (JWS _ sigs) = throwError $ review _CompactEncodeError $
-    "cannot compact serialize JWS with " ++ show (length sigs) ++ " sigs"
 
-instance HasParams a => FromCompact (JWS a) where
+instance HasParams a => FromCompact (JWS Identity a) where
   fromCompact xs = case xs of
     [h, p, s] -> do
       (h', p', s') <- (,,) <$> t h <*> t p <*> t s
@@ -239,16 +238,40 @@ instance HasParams a => FromCompact (JWS a) where
 
 -- §5.1. Message Signing or MACing
 
+-- | Construct a new JWS with a single signature
+--
+newJWS
+  :: ( HasJWSHeader a, HasParams a, MonadRandom m, AsError e, MonadError e m
+     , Applicative t
+     )
+  => JWK      -- ^ Key with which to sign
+  -> a        -- ^ Header for signature
+  -> BS.ByteString -- ^ message to sign
+  -> m (JWS t a) -- ^ JWS with new signature appended
+newJWS k h p =
+  let
+    p' = Types.Base64Octets p
+  in
+    JWS p' . pure <$> mkSignature k h p'
+
 -- | Create a new signature on a JWS.
 --
 signJWS
-  :: (HasJWSHeader a, HasParams a, MonadRandom m, AsError e, MonadError e m)
-  => JWS a    -- ^ JWS to sign
+  :: ( HasJWSHeader a, HasParams a, MonadRandom m, AsError e, MonadError e m
+     , Semigroup (t (Signature a)), Applicative t
+     )
+  => JWK      -- ^ Key with which to sign
   -> a        -- ^ Header for signature
-  -> JWK      -- ^ Key with which to sign
-  -> m (JWS a) -- ^ JWS with new signature appended
-signJWS (JWS p sigs) h k =
-  (\sig -> JWS p (Signature Nothing h (Types.Base64Octets sig):sigs))
+  -> JWS t a    -- ^ JWS to sign
+  -> m (JWS t a) -- ^ JWS with new signature appended
+signJWS k h (JWS p sigs) =
+  (\sig -> JWS p (pure sig <> sigs)) <$> mkSignature k h p
+
+mkSignature
+  :: (MonadRandom m, AsError e, MonadError e m, HasJWSHeader a, HasParams a)
+  => JWK -> a -> Types.Base64Octets -> m (Signature a)
+mkSignature k h p =
+  Signature Nothing h . Types.Base64Octets
   <$> sign (param (view jwsHeaderAlg h)) (k ^. jwkMaterial) (signingInput (Right h) p)
 
 
@@ -299,10 +322,10 @@ defaultValidationSettings = ValidationSettings
 --
 verifyJWS
   ::  ( HasAlgorithms a, HasValidationPolicy a, AsError e, MonadError e m
-      , HasJWSHeader h, HasParams h)
+      , HasJWSHeader h, HasParams h, Foldable t)
   => a
   -> JWK
-  -> JWS h
+  -> JWS t h
   -> m ()
 verifyJWS conf k (JWS p sigs) =
   let

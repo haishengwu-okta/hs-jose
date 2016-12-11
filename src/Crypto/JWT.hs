@@ -69,6 +69,7 @@ import Control.Monad.Time (MonadTime(..))
 #if ! MIN_VERSION_monad_time(0,2,0)
 import Control.Monad.Time.Instances ()
 #endif
+import Data.Functor.Identity (Identity(..))
 import Data.Maybe
 import qualified Data.String
 
@@ -353,7 +354,7 @@ validateAudClaim conf claims =
 
 -- | Data representing the JOSE aspects of a JWT.
 --
-data JWTCrypto = JWTJWS (JWS JWSHeader) deriving (Eq, Show)
+data JWTCrypto = JWTJWS (JWS Identity JWSHeader) deriving (Eq, Show)
 
 instance FromCompact JWTCrypto where
   fromCompact = fmap JWTJWS . fromCompact
@@ -407,6 +408,4 @@ createJWSJWT
   -> ClaimsSet
   -> m JWT
 createJWSJWT k h c =
-  (\jws -> JWT (JWTJWS jws) c) <$> signJWS (JWS payload []) h k
-  where
-    payload = Base64Octets $ BSL.toStrict $ encode c
+  (\jws -> JWT (JWTJWS jws) c) <$> newJWS k h (BSL.toStrict (encode c))

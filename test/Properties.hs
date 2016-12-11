@@ -18,6 +18,7 @@ module Properties where
 
 import Control.Applicative
 import Control.Monad.Except (runExceptT)
+import Data.Functor.Identity
 
 import Data.Aeson
 import qualified Data.ByteString as B
@@ -60,8 +61,12 @@ prop_rsaSignAndVerify msg = monadicIO $ do
   k :: JWK <- run $ genJWK (RSAGenParam keylen)
   alg <- pick $ elements [RS256, RS384, RS512, PS256, PS384, PS512]
   monitor (collect alg)
-  wp (runExceptT (signJWS (newJWS msg) (newJWSHeader (Protected, alg)) k
-    >>= verifyJWS defaultValidationSettings k)) checkSignVerifyResult
+  let
+    h = newJWSHeader (Protected, alg)
+    go = do
+      jws :: JWS Identity JWSHeader <- newJWS k h msg
+      verifyJWS defaultValidationSettings k jws
+  wp (runExceptT go) checkSignVerifyResult
 
 prop_bestJWSAlg :: B.ByteString -> Property
 prop_bestJWSAlg msg = monadicIO $ do
@@ -72,8 +77,9 @@ prop_bestJWSAlg msg = monadicIO $ do
     Right alg -> do
       monitor (collect alg)
       let
+        h = newJWSHeader (Protected, alg)
         go = do
-          jws <- signJWS (newJWS msg) (newJWSHeader (Protected, alg)) k
+          jws :: JWS Identity JWSHeader <- newJWS k h msg
           verifyJWS defaultValidationSettings k jws
       wp (runExceptT go) checkSignVerifyResult
 
